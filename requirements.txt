@@ -3,3 +3,4 @@ google-generativeai
 python-dotenv
 schedule
 beautifulsoup4
+google-api-python-client

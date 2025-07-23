@@ -8,9 +8,11 @@ from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from bs4 import BeautifulSoup
 import time
+import re
 from googleapiclient.discovery import build
 
 load_dotenv()
+
 
 # Configure the Gemini API key
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -63,6 +65,18 @@ def scrape_article_content(url):
     except Exception as e:
         print(f"An error occurred while scraping {url}: {e}")
         return None
+
+def clean_post_text(text):
+    """
+    Cleans the generated post text by removing markdown-like formatting.
+    """
+    # Remove bold markers (**)
+    text = text.replace('**', '')
+    # Remove list item markers (* ) at the beginning of lines
+    text = re.sub(r'^\s*\*\s+', '', text, flags=re.MULTILINE)
+    # Remove heading markers (#, ##, etc.) at the beginning of lines
+    text = re.sub(r'^\s*#+\s+', '', text, flags=re.MULTILINE)
+    return text.strip()
 
 def generate_linkedin_post(article_content, style_guide_text):
     """
@@ -122,12 +136,13 @@ if __name__ == '__main__':
                 style_guide = ""
 
             linkedin_post = generate_linkedin_post(article_content, style_guide)
+            cleaned_post = clean_post_text(linkedin_post)
             
             print("\n--- GENERATED LINKEDIN POST ---\n")
-            print(linkedin_post)
+            print(cleaned_post)
             
             with open("generated_post.txt", "w", encoding="utf-8") as f:
-                f.write(linkedin_post)
+                f.write(cleaned_post)
             print("\nPost saved to generated_post.txt")
     else:
         print("No articles found for the given query.")

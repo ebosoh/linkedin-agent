@@ -19,27 +19,45 @@ genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GOOGLE_CSE_ID = os.getenv("GOOGLE_CSE_ID")
 
-def search_for_news(query, num_results=5, retries=3, delay=10):
+def get_unique_article_url(urls):
     """
-    Searches for a given query using the Google Custom Search API with retries.
+    Finds the first URL in a list that has not been previously posted.
+    """
+    try:
+        with open("posted_articles.log", "r") as f:
+            posted_urls = {line.strip() for line in f}
+    except FileNotFoundError:
+        posted_urls = set()
+
+    for url in urls:
+        if url not in posted_urls:
+            print(f"Found unique article to post: {url}")
+            return url
+    
+    print("No new articles found in the search results.")
+    return None
+
+def log_posted_article(url):
+    """
+    Logs a URL to the posted_articles.log file.
+    """
+    with open("posted_articles.log", "a") as f:
+        f.write(url + "\n")
+
+def search_for_news(query, num_results=10): # Fetch more results to increase chance of finding a unique one
+    """
+    Searches for a given query using the Google Custom Search API.
     """
     print(f"Searching for news with query: {query}")
-    for i in range(retries):
-        try:
-            service = build("customsearch", "v1", developerKey=GOOGLE_API_KEY)
-            res = service.cse().list(q=query, cx=GOOGLE_CSE_ID, num=num_results).execute()
-            urls = [item['link'] for item in res.get('items', [])]
-            print(f"Found {len(urls)} results.")
-            return urls
-        except Exception as e:
-            print(f"An error occurred during Google Custom Search (Attempt {i+1}/{retries}): {e}")
-            if i < retries - 1:
-                print(f"Retrying in {delay} seconds...")
-                time.sleep(delay)
-            else:
-                print("All retries failed.")
-                return []
-    return []
+    try:
+        service = build("customsearch", "v1", developerKey=GOOGLE_API_KEY)
+        res = service.cse().list(q=query, cx=GOOGLE_CSE_ID, num=num_results).execute()
+        urls = [item['link'] for item in res.get('items', [])]
+        print(f"Found {len(urls)} results.")
+        return urls
+    except Exception as e:
+        print(f"An error occurred during Google Custom Search: {e}")
+        return []
 
 def scrape_article_content(url):
     """
@@ -107,7 +125,23 @@ def generate_linkedin_post(article_content, style_guide_text):
     4.  Include relevant hashtags at the end.
     5.  Start with a strong hook to grab attention.
     6.  End with a question or a call to action to encourage engagement.
-    """
+    7.  Use emojis to enhance the post's visual appeal, but keep it professional.
+    8.  Ensure the post is suitable for a professional audience on LinkedIn.  
+    9.  Avoid using markdown-like formatting (e.g., **bold**, *italic*).  
+    10. Ensure the post is concise and to the point, avoiding unnecessary fluff.
+    11. Use a friendly and approachable tone, as if speaking directly to a colleague.
+    12. Ensure the post is informative and adds value to my network.
+    13. Avoid using overly technical jargon unless necessary for clarity.
+    14. Ensure the post is original and does not plagiarize any content from the article.
+    15. The post should be engaging and encourage discussion among my connections.
+    16. Use a conversational tone, as if speaking directly to my LinkedIn connections.
+    17. Ensure the post is well-structured with a clear beginning, middle, and end.
+    18. Avoid using excessive exclamation marks or overly dramatic language.
+    19. Ensure the post is free of grammatical errors and typos.
+    20. The post should be suitable for a professional audience and reflect my expertise in the field.
+    21. Ensure the post is relevant to my professional interests and expertise.
+    22. The post should be engaging and encourage discussion among my connections.  
+    23. Ensure the post is optimized for reading on LinkedIn, with short paragraphs and clear formatting.    """
     
     response = model.generate_content(prompt)
     print("Post generation complete.")
@@ -125,25 +159,34 @@ if __name__ == '__main__':
     article_urls = search_for_news(search_query)
 
     if article_urls:
-        article_content = scrape_article_content(article_urls[0])
+        unique_article_url = get_unique_article_url(article_urls)
         
-        if article_content:
-            try:
-                with open("style_guide.txt", "r", encoding="utf-8") as f:
-                    style_guide = f.read()
-            except FileNotFoundError:
-                print("Error: style_guide.txt not found. Please run linkedin_scraper.py first.")
-                style_guide = ""
+        if unique_article_url:
+            article_content = scrape_article_content(unique_article_url)
+            
+            if article_content:
+                try:
+                    with open("style_guide.txt", "r", encoding="utf-8") as f:
+                        style_guide = f.read()
+                except FileNotFoundError:
+                    print("Error: style_guide.txt not found. Please run linkedin_scraper.py first.")
+                    style_guide = ""
 
-            linkedin_post = generate_linkedin_post(article_content, style_guide)
-            cleaned_post = clean_post_text(linkedin_post)
-            
-            print("\n--- GENERATED LINKEDIN POST ---\n")
-            print(cleaned_post)
-            
-            with open("generated_post.txt", "w", encoding="utf-8") as f:
-                f.write(cleaned_post)
-            print("\nPost saved to generated_post.txt")
+                linkedin_post = generate_linkedin_post(article_content, style_guide)
+                cleaned_post = clean_post_text(linkedin_post)
+                
+                print("\n--- GENERATED LINKEDIN POST ---\n")
+                print(cleaned_post)
+                
+                with open("generated_post.txt", "w", encoding="utf-8") as f:
+                    f.write(cleaned_post)
+                print("\nPost saved to generated_post.txt")
+
+                # Log the article URL to prevent re-posting
+                log_posted_article(unique_article_url)
+                print(f"Logged {unique_article_url} to posted_articles.log")
+        else:
+            print("No new, unposted articles were found.")
     else:
         print("No articles found for the given query.")
 

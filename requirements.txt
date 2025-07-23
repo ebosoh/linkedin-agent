@@ -1,0 +1,5 @@
+playwright
+google-generativeai
+python-dotenv
+schedule
+beautifulsoup4

@@ -1,7 +1,3 @@
-
-
-
-
 import os
 import google.generativeai as genai
 from dotenv import load_dotenv
@@ -10,9 +6,9 @@ from bs4 import BeautifulSoup
 import time
 import re
 from googleapiclient.discovery import build
+import sys
 
 load_dotenv()
-
 
 # Configure the Gemini API key
 genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -86,14 +82,25 @@ def scrape_article_content(url):
 
 def clean_post_text(text):
     """
-    Cleans the generated post text by removing markdown-like formatting.
+    Cleans the generated post text by removing unwanted markdown and specific phrases.
     """
-    # Remove bold markers (**)
-    text = text.replace('**', '')
     # Remove list item markers (* ) at the beginning of lines
     text = re.sub(r'^\s*\*\s+', '', text, flags=re.MULTILINE)
     # Remove heading markers (#, ##, etc.) at the beginning of lines
     text = re.sub(r'^\s*#+\s+', '', text, flags=re.MULTILINE)
+    # Remove horizontal rules and other artifacts
+    text = text.replace('***', '')
+    text = re.sub(r'^\s*[-*_]{3,}\s*$', '', text, flags=re.MULTILINE)
+    # Remove variations of "Let's discuss!"
+    text = re.sub(r"Let's discuss!.*", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"Let’s discuss!.*", "", text, flags=re.IGNORECASE)
+    # Remove generic greetings
+    greetings = ["Hey everyone! 👋", "Hey everyone!", "Hi everyone,"]
+    for greeting in greetings:
+        text = text.replace(greeting, "")
+     Remove "Ever" from the beginning of the post
+    if text.lstrip().startswith("Ever"):
+        text = text.lstrip()[4:].lstrip()
     return text.strip()
 
 def generate_linkedin_post(article_content, style_guide_text):
@@ -104,7 +111,7 @@ def generate_linkedin_post(article_content, style_guide_text):
     model = genai.GenerativeModel('gemini-1.5-flash')
     
     prompt = f"""
-    **Objective:** Write a 400-word LinkedIn post based on the provided news article.
+    **Objective:** Write a professional and engaging LinkedIn post based on the provided news article.
 
     **Style Guide:**
     Analyze the following posts to understand my personal writing style. Mimic this style in the new post. Pay attention to tone, sentence structure, use of emojis, and hashtags.
@@ -119,42 +126,81 @@ def generate_linkedin_post(article_content, style_guide_text):
     ---
 
     **Instructions:**
-    1.  Create an engaging and professional LinkedIn post of approximately 400 words.
-    2.  The post should summarize the key points of the article.
-    3.  Incorporate my personal writing style from the examples provided.
-    4.  Include relevant hashtags at the end.
-    5.  Start with a strong hook to grab attention.
-    6.  End with a question or a call to action to encourage engagement.
-    7.  Use emojis to enhance the post's visual appeal, but keep it professional.
-    8.  Ensure the post is suitable for a professional audience on LinkedIn.  
-    9.  Avoid using markdown-like formatting (e.g., **bold**, *italic*).  
-    10. Ensure the post is concise and to the point, avoiding unnecessary fluff.
-    11. Use a friendly and approachable tone, as if speaking directly to a colleague.
-    12. Ensure the post is informative and adds value to my network.
-    13. Avoid using overly technical jargon unless necessary for clarity.
-    14. Ensure the post is original and does not plagiarize any content from the article.
-    15. The post should be engaging and encourage discussion among my connections.
-    16. Use a conversational tone, as if speaking directly to my LinkedIn connections.
-    17. Ensure the post is well-structured with a clear beginning, middle, and end.
-    18. Avoid using excessive exclamation marks or overly dramatic language.
-    19. Ensure the post is free of grammatical errors and typos.
-    20. The post should be suitable for a professional audience and reflect my expertise in the field.
-    21. Ensure the post is relevant to my professional interests and expertise.
-    22. The post should be engaging and encourage discussion among my connections.  
-    23. Ensure the post is optimized for reading on LinkedIn, with short paragraphs and clear formatting.    """
+    1.  **Human-Like Tone:** Write in a natural, conversational, and authentic voice. Avoid overly formal or robotic language.
+    2.  **Unique Opening:** Start with a unique and compelling hook that grabs the reader's attention immediately. Do NOT use generic greetings like "Hey everyone!" or start with the word "Ever".
+    3.  **Skim-Optimized Readability:** Structure the post for extremely easy reading on mobile. Use **very short paragraphs**, often just a single sentence or two.
+    4.  **Formatting:** Use bold text (e.g., `**My Sub-title**`) to create sub-titles for different sections of the post to break up the text and guide the reader.
+    5.  **Content:** Summarize the key points of the article, provide a unique perspective or insight, and encourage engagement with a thoughtful question.
+    6.  **Length:** The post should be approximately 400 words.
+    7.  **Emojis & Hashtags:** Incorporate relevant emojis to add personality and include relevant hashtags at the end.
+    8.  **Final Polish:** Ensure the post is free of grammatical errors and typos.
+    10. Remove any unwanted characters like*** from the article content.
+
+    """
     
     response = model.generate_content(prompt)
     print("Post generation complete.")
     return response.text
 
+def login_and_post(post_content):
+    """
+    Logs into LinkedIn and posts the given content.
+    """
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=False) # Set to True for production
+        page = browser.new_page()
+        
+        try:
+            print("Logging into LinkedIn...")
+            page.goto("https://www.linkedin.com/login")
+            page.fill("#username", os.getenv("LINKEDIN_USER"))
+            page.fill("#password", os.getenv("LINKEDIN_PASS"))
+            
+            # Uncheck the "Remember me" checkbox if it's visible
+            try:
+                remember_me_selector = "#remember-me-prompt-toggle"
+                page.wait_for_selector(remember_me_selector, timeout=5000) # Wait up to 5s
+                if page.is_checked(remember_me_selector):
+                    page.uncheck(remember_me_selector)
+                    print("Unchecked 'Remember me' checkbox.")
+            except Exception:
+                print("'Remember me' checkbox not found, continuing with login.")
+                pass
+
+            page.click("button[type='submit']")
+            page.wait_for_url("**/feed/**", timeout=90000)
+            print("Login successful.")
+
+            # --- Post to Personal Profile ---
+            print("Navigating to create a post...")
+            page.click('button:has-text("Start a post")')
+            
+            print("Typing post content...")
+            editor_selector = "div.ql-editor"
+            page.wait_for_selector(editor_selector, timeout=30000)
+            page.fill(editor_selector, post_content)
+            
+            post_button_selector = "button.share-actions__primary-action"
+            page.wait_for_selector(post_button_selector, timeout=30000)
+            page.click(post_button_selector)
+            print("Post published to personal profile.")
+            time.sleep(5) # Wait for post to complete
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            page.screenshot(path="linkedin_post_error.png")
+            print("Saved screenshot to linkedin_post_error.png for debugging.")
+        finally:
+            browser.close()
+
 if __name__ == '__main__':
     # Set stdout to utf-8 to handle emojis
-    import sys
     if sys.stdout.encoding != 'utf-8':
         sys.stdout.reconfigure(encoding='utf-8')
 
     company_topic = "latest developments in large language models"
-    search_query = f"{company_topic} site:techcrunch.com OR site:wired.com OR site:venturebeat.com"
+    # Search the entire web, not just specific sites
+    search_query = f"{company_topic}"
 
     article_urls = search_for_news(search_query)
 
@@ -185,8 +231,11 @@ if __name__ == '__main__':
                 # Log the article URL to prevent re-posting
                 log_posted_article(unique_article_url)
                 print(f"Logged {unique_article_url} to posted_articles.log")
+
+                # Post to LinkedIn
+                print("\n--- POSTING TO LINKEDIN ---")
+                login_and_post(cleaned_post)
         else:
             print("No new, unposted articles were found.")
     else:
         print("No articles found for the given query.")
-

@@ -109,18 +109,23 @@ def clean_post_text(text):
     text = re.sub(r'Click the link below.*', '', text, flags=re.IGNORECASE)
     return text.strip()
 
-def generate_linkedin_post(article_content, style_guide_text, topic, company):
+def generate_linkedin_post(article_content, style_guide_text, topic, company, region=None):
     """
     Generates a LinkedIn post using the Gemini API.
     """
     print(f"Generating LinkedIn post on the topic of: {topic} from {company}")
     model = genai.GenerativeModel('gemini-1.5-flash')
     
+    region_prompt = ""
+    if region == "Africa":
+        region_prompt = "The post should also highlight that this is a significant development happening in Africa, showcasing innovation from the continent."
+
     prompt = f"""
     **Objective:** Write a professional, exciting, and insightful LinkedIn post based on the provided **trending** news article about **{company}** on the topic of **{topic}**. The post must be designed to spark curiosity and engagement.
 
     **Topic for this post:** {topic}
     **Company in Focus:** {company}
+    {region_prompt}
 
     **Style Guide:**
     Analyze the following posts to understand my personal writing style. Mimic this style in the new post. Pay attention to tone, sentence structure, use of emojis, and hashtags.
@@ -217,22 +222,32 @@ def login_and_post(post_content):
         finally:
             browser.close()
 
-def generate_search_queries(topics, companies):
+def generate_search_queries(topics, companies, african_countries):
     """
-    Generates a shuffled list of search queries, including topic-only and company-specific ones.
+    Generates a shuffled list of search queries, including topic-only, company-specific, and African news.
     """
     queries = []
     # Add broader, non-company-specific queries for each topic
     for topic in topics:
-        queries.append(f"trending news on '{topic}'")
-        
+        # Occasionally add an African country to the topic search
+        if random.random() < 0.3: # 30% chance to add an African country
+            country = random.choice(african_countries)
+            queries.append(f"trending news on '{topic}' in {country}")
+        else:
+            queries.append(f"trending news on '{topic}'")
+
     # Add company-specific queries
     for company in companies:
         # To keep it focused, let's randomly pick a few topics for each company
         selected_topics = random.sample(topics, k=min(len(topics), 3)) # Pick up to 3 topics
         for topic in selected_topics:
-            queries.append(f"trending news from {company} on '{topic}'")
-            
+            # Occasionally add an African country to the company search
+            if random.random() < 0.3: # 30% chance to add an African country
+                country = random.choice(african_countries)
+                queries.append(f"trending news from {company} on '{topic}' in {country}")
+            else:
+                queries.append(f"trending news from {company} on '{topic}'")
+
     random.shuffle(queries)
     print(f"Generated {len(queries)} unique search queries.")
     return queries
@@ -248,6 +263,8 @@ def find_and_process_article(search_queries):
         
         company_match = re.search(r"from (\w+)", query)
         company = company_match.group(1) if company_match else "a leading company"
+        
+        region = "Africa" if "in" in query else None
 
         article_urls = search_for_news(query)
         if not article_urls:
@@ -265,7 +282,7 @@ def find_and_process_article(search_queries):
                     print("Error: style_guide.txt not found. Please run linkedin_scraper.py first.")
                     style_guide = ""
 
-                linkedin_post = generate_linkedin_post(article_content, style_guide, topic, company)
+                linkedin_post = generate_linkedin_post(article_content, style_guide, topic, company, region=region)
                 cleaned_post = clean_post_text(linkedin_post)
                 
                 print("\n--- GENERATED LINKEDIN POST ---\n")
@@ -313,8 +330,12 @@ if __name__ == '__main__':
         "SAP", "Samsung", "UiPath"
     ]
 
+    african_countries = [
+        "Nigeria", "South Africa", "Kenya", "Ghana", "Egypt", "Rwanda", "Ethiopia", "Morocco", "Senegal", "Uganda"
+    ]
+
     # Generate a dynamic and shuffled list of search queries
-    queries = generate_search_queries(research_topics, leading_companies)
+    queries = generate_search_queries(research_topics, leading_companies, african_countries)
     
     # Try to find and post an article from the generated queries
     success = find_and_process_article(queries)
